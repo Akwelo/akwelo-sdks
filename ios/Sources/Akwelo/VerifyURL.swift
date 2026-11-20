@@ -41,6 +41,24 @@ enum VerifyURL {
         return url
     }
 
+    /// `scheme://host[:port]`, lower-cased, default ports dropped. Nil for URLs without a host or with userinfo.
+    static func origin(of url: URL?) -> String? {
+        guard let url, let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              c.user == nil, c.password == nil else { return nil }
+        return origin(scheme: c.scheme, host: c.host, port: c.port)
+    }
+
+    static func origin(scheme: String?, host: String?, port: Int?) -> String? {
+        guard let s = scheme?.lowercased(), let h = host?.lowercased(), !h.isEmpty else { return nil }
+        if let p = port, !((s == "https" && p == 443) || (s == "http" && p == 80)) { return "\(s)://\(h):\(p)" }
+        return "\(s)://\(h)"
+    }
+
+    static func isTrusted(_ url: URL?, base: URL) -> Bool {
+        guard let o = origin(of: url) else { return false }
+        return o == origin(of: base)
+    }
+
     private static func encode(_ v: String) -> String {
         v.addingPercentEncoding(withAllowedCharacters: allowed) ?? v
     }

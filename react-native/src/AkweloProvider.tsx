@@ -25,7 +25,13 @@ export function AkweloProvider({ children }: { children?: ReactNode }) {
       activeRef.current = next;
       setActive(next);
     });
-    return () => setPresenter(null);
+    return () => {
+      setPresenter(null);
+      // Provider unmounted mid-flow: settle the pending promise instead of leaving it hanging.
+      const cur = activeRef.current;
+      activeRef.current = null;
+      cur?.done({ status: 'cancelled' });
+    };
   }, []);
 
   const finish = (r: VerifyResult) => {

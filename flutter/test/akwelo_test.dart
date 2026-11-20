@@ -1,5 +1,5 @@
 import 'package:akwelo/akwelo.dart';
-import 'package:akwelo/src/contract.dart' show kResultMessageType;
+import 'package:akwelo/src/contract.dart' show kResultMessageType, originOf;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -30,5 +30,19 @@ void main() {
       expect(VerifyResult.parse('nope'), isNull);
       expect(VerifyResult.parse(null), isNull);
     });
+  });
+
+  test('originOf matches only the exact origin', () {
+    const base = 'https://flow.akwelo.com';
+    expect(originOf('https://FLOW.akwelo.com:443/verify/selfie#token=x'), originOf(base));
+    for (final u in [
+      'https://flow.akwelo.com.evil.com/',
+      'https://flow.akwelo.com@evil.com/',
+      'http://flow.akwelo.com/',
+      'https://flow.akwelo.com:8443/',
+      null,
+    ]) {
+      expect(originOf(u) == originOf(base), isFalse, reason: '$u');
+    }
   });
 }

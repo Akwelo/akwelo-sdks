@@ -78,3 +78,14 @@ Uri buildVerifyUrl(String baseUrl, String sessionToken, {String? attestation}) {
   }
   return Uri.parse('$base/verify/selfie#$fragment');
 }
+
+/// `scheme://host[:port]`, lower-cased, default ports dropped. Null without a host or with userinfo.
+String? originOf(String? url) {
+  if (url == null) return null;
+  final u = Uri.tryParse(url.trim());
+  if (u == null || u.host.isEmpty || u.userInfo.isNotEmpty || u.scheme.isEmpty) return null;
+  final scheme = u.scheme.toLowerCase();
+  final host = u.host.toLowerCase();
+  final isDefault = !u.hasPort || (scheme == 'https' && u.port == 443) || (scheme == 'http' && u.port == 80);
+  return isDefault ? '$scheme://$host' : '$scheme://$host:${u.port}';
+}

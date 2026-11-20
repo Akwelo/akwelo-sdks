@@ -43,7 +43,7 @@ public enum Akwelo {
 
 /// Full-screen WKWebView hosting the capture page. The host app must declare
 /// `NSCameraUsageDescription` in Info.plist.
-final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler, WKUIDelegate {
+final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler, WKUIDelegate, WKNavigationDelegate {
     private let url: URL
     private let origin: URL
     private var onResult: ((VerifyResult) -> Void)?
@@ -73,12 +73,15 @@ final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler
         webView = WKWebView(frame: view.bounds, configuration: config)
         webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         webView.uiDelegate = self
+        webView.navigationDelegate = self
         view.addSubview(webView)
         webView.load(URLRequest(url: url))
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, let result = VerifyResult.parse(message.body) else { return }
+        guard message.frameInfo.isMainFrame,
+              VerifyURL.isTrusted(message.frameInfo.securityOrigin, base: origin),
+              let result = VerifyResult.parse(message.body) else { return }
         finish(result)
     }
 
@@ -87,12 +90,24 @@ final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
-        let trusted = origin.host == self.origin.host && origin.protocol == self.origin.scheme
+        let trusted = VerifyURL.isTrusted(origin, base: self.origin)
         guard trusted, type == .camera else { return decisionHandler(.deny) }
         AVCaptureDevice.requestAccess(for: .video) { granted in
             DispatchQueue.main.async { decisionHandler(granted ? .grant : .deny) }
         }
     }
+
+    // Keep the top-level document on the Akwelo origin so no other site can reach the bridge.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        let mainFrame = action.targetFrame?.isMainFrame ?? true
+        guard mainFrame else { return decisionHandler(.allow) }
+        decisionHandler(VerifyURL.isTrusted(action.request.url, base: origin) ? .allow : .cancel)
+    }
+
+    // window.open / target=_blank: never spawn an untracked web view.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
@@ -105,6 +120,13 @@ final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler
         onResult = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "akwelo")
         if dismiss { self.dismiss(animated: true) { cb(result) } } else { cb(result) }
+    }
+}
+
+extension VerifyURL {
+    static func isTrusted(_ o: WKSecurityOrigin, base: URL) -> Bool {
+        let port = o.port == 0 ? nil : o.port
+        return origin(scheme: o.protocol, host: o.host, port: port) == origin(of: base)
     }
 }
 

@@ -5,6 +5,8 @@ import {
   BRIDGE_SHIM,
   DEFAULT_BASE_URL,
   buildVerifyUrl,
+  isTrustedUrl,
+  originOf,
   parseResult,
   resolveAttestation,
   type VerifyOptions,
@@ -49,7 +51,7 @@ export function AkweloVerifyView({ sessionToken, baseUrl = DEFAULT_BASE_URL, att
     );
   }
 
-  const origin = baseUrl.replace(/\/+$/, '');
+  const origin = originOf(baseUrl) ?? baseUrl;
   return (
     <WebView
       source={{ uri }}
@@ -61,7 +63,11 @@ export function AkweloVerifyView({ sessionToken, baseUrl = DEFAULT_BASE_URL, att
       mediaPlaybackRequiresUserAction={false}
       mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
       injectedJavaScriptBeforeContentLoaded={BRIDGE_SHIM}
+      // Keep the top-level document on the Akwelo origin; no other site gets the bridge.
+      onShouldStartLoadWithRequest={(req) => req.isTopFrame === false || isTrustedUrl(req.url, baseUrl)}
+      setSupportMultipleWindows={false}
       onMessage={(e: WebViewMessageEvent) => {
+        if (!isTrustedUrl(e.nativeEvent.url, baseUrl)) return;
         const r = parseResult(e.nativeEvent.data);
         if (r) finish(r);
       }}

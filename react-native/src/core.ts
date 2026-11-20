@@ -33,6 +33,24 @@ export function buildVerifyUrl(baseUrl: string, sessionToken: string, attestatio
   return url;
 }
 
+/** `scheme://host[:port]`, lower-cased, default ports dropped. Null without a host or with userinfo. */
+export function originOf(url: string | null | undefined): string | null {
+  const m = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)/i.exec((url ?? '').trim());
+  if (!m || !m[2] || m[2].includes('@')) return null;
+  const scheme = m[1]!.toLowerCase();
+  let host = m[2].toLowerCase();
+  if ((scheme === 'https' && host.endsWith(':443')) || (scheme === 'http' && host.endsWith(':80'))) {
+    host = host.slice(0, host.lastIndexOf(':'));
+  }
+  return `${scheme}://${host}`;
+}
+
+/** True only when `url` is on exactly the same origin as `baseUrl`. */
+export function isTrustedUrl(url: string | null | undefined, baseUrl: string): boolean {
+  const o = originOf(url);
+  return o !== null && o === originOf(baseUrl);
+}
+
 /** Parses a bridge message (string or object). Returns null for anything that is not an Akwelo result. */
 export function parseResult(data: unknown): VerifyResult | null {
   let obj: unknown = data;

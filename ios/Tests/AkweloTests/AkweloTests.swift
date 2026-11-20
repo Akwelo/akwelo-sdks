@@ -2,6 +2,16 @@ import XCTest
 @testable import Akwelo
 
 final class AkweloTests: XCTestCase {
+    func testOriginCheckIsExact() {
+        let base = AkweloOptions.defaultBaseURL
+        XCTAssertTrue(VerifyURL.isTrusted(URL(string: "https://flow.akwelo.com/verify/selfie#token=x"), base: base))
+        XCTAssertTrue(VerifyURL.isTrusted(URL(string: "https://FLOW.akwelo.com:443/"), base: base))
+        XCTAssertFalse(VerifyURL.isTrusted(URL(string: "https://flow.akwelo.com.evil.com/"), base: base))
+        XCTAssertFalse(VerifyURL.isTrusted(URL(string: "https://flow.akwelo.com@evil.com/"), base: base))
+        XCTAssertFalse(VerifyURL.isTrusted(URL(string: "http://flow.akwelo.com/"), base: base))
+        XCTAssertFalse(VerifyURL.isTrusted(nil, base: base))
+    }
+
     func testDefaultURL() throws {
         let url = try VerifyURL.build(baseURL: AkweloOptions.defaultBaseURL, sessionToken: "abc")
         XCTAssertEqual(url.absoluteString, "https://flow.akwelo.com/verify/selfie#token=abc")

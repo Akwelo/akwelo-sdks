@@ -1,5 +1,6 @@
 package com.akwelo
 
+import java.net.URI
 import java.net.URLEncoder
 
 data class AkweloOptions(
@@ -26,6 +27,24 @@ object VerifyUrl {
         val sb = StringBuilder(base).append("/verify/selfie#token=").append(encode(sessionToken))
         if (!attestationToken.isNullOrEmpty()) sb.append("&attest=").append(encode(attestationToken))
         return sb.toString()
+    }
+
+    /** `scheme://host[:port]` of [url], lower-cased, or null if it has no host. Used for exact-origin checks. */
+    @JvmStatic
+    fun origin(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        val u = try { URI(url.trim()) } catch (_: Exception) { return null }
+        val scheme = u.scheme?.lowercase() ?: return null
+        val host = u.host?.lowercase() ?: return null
+        if (u.rawUserInfo != null) return null
+        val defaultPort = (scheme == "https" && u.port == 443) || (scheme == "http" && u.port == 80)
+        return if (u.port == -1 || defaultPort) "$scheme://$host" else "$scheme://$host:${u.port}"
+    }
+
+    @JvmStatic
+    fun isTrusted(url: String?, baseUrl: String): Boolean {
+        val o = origin(url) ?: return false
+        return o == origin(baseUrl)
     }
 
     private fun encode(v: String) = URLEncoder.encode(v, "UTF-8").replace("+", "%20")

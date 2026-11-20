@@ -28,23 +28,26 @@ class _AkweloVerifyPageState extends State<AkweloVerifyPage> {
             mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
           )
         : const PlatformWebViewControllerCreationParams();
-    final origin = '${widget.url.scheme}://${widget.url.authority}';
+    final origin = originOf(widget.url.toString());
 
     _controller = WebViewController.fromPlatformCreationParams(
       params,
       onPermissionRequest: (request) {
-        // Only the camera, only for the Akwelo origin.
+        // Only the camera; navigation is pinned to the Akwelo origin below.
         final camOnly = request.types.every((t) => t == WebViewPermissionResourceType.camera);
         camOnly ? request.grant() : request.deny();
       },
     )
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel('AkweloBridge', onMessageReceived: (m) {
+      ..addJavaScriptChannel('AkweloBridge', onMessageReceived: (m) async {
+        // The channel is visible to any loaded page; only trust the Akwelo origin.
+        final current = await _controller.currentUrl();
+        if (origin == null || originOf(current) != origin) return;
         final r = VerifyResult.parse(m.message);
         if (r != null) _finish(r);
       })
       ..setNavigationDelegate(NavigationDelegate(
-        onNavigationRequest: (req) => req.url.startsWith(origin)
+        onNavigationRequest: (req) => origin != null && originOf(req.url) == origin
             ? NavigationDecision.navigate
             : NavigationDecision.prevent,
         onWebResourceError: (e) {

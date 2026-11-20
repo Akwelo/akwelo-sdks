@@ -1,4 +1,4 @@
-import { Akwelo, buildVerifyUrl, parseResult, resolveAttestation, setPresenter } from '../core';
+import { Akwelo, buildVerifyUrl, isTrustedUrl, parseResult, resolveAttestation, setPresenter } from '../core';
 
 describe('buildVerifyUrl', () => {
   it('builds the default URL with the token in the fragment', () => {
@@ -50,5 +50,25 @@ describe('Akwelo.verify', () => {
   it('delegates to the presenter and resolves with its result', async () => {
     setPresenter((opts, done) => done({ status: 'submitted', sessionId: opts.sessionToken }));
     expect(await Akwelo.verify({ sessionToken: 's_9' })).toEqual({ status: 'submitted', sessionId: 's_9' });
+  });
+});
+
+describe('isTrustedUrl', () => {
+  const base = 'https://flow.akwelo.com';
+  it('accepts the exact origin', () => {
+    expect(isTrustedUrl('https://flow.akwelo.com/verify/selfie#token=x', base)).toBe(true);
+    expect(isTrustedUrl('https://FLOW.akwelo.com:443/', `${base}/`)).toBe(true);
+  });
+  it('rejects look-alikes and other origins', () => {
+    for (const u of [
+      'https://flow.akwelo.com.evil.com/',
+      'https://flow.akwelo.com@evil.com/',
+      'http://flow.akwelo.com/',
+      'https://flow.akwelo.com:8443/',
+      'about:blank',
+      undefined,
+    ]) {
+      expect(isTrustedUrl(u, base)).toBe(false);
+    }
   });
 });

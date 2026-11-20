@@ -5,6 +5,17 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class VerifyContractTest {
+    @Test fun originCheckIsExact() {
+        val base = AkweloOptions.DEFAULT_BASE_URL
+        org.junit.Assert.assertTrue(VerifyUrl.isTrusted("https://flow.akwelo.com/verify/selfie#token=x", base))
+        org.junit.Assert.assertTrue(VerifyUrl.isTrusted("https://FLOW.akwelo.com:443/", "$base/"))
+        org.junit.Assert.assertFalse(VerifyUrl.isTrusted("https://flow.akwelo.com.evil.com/", base))
+        org.junit.Assert.assertFalse(VerifyUrl.isTrusted("https://flow.akwelo.com@evil.com/", base))
+        org.junit.Assert.assertFalse(VerifyUrl.isTrusted("http://flow.akwelo.com/", base))
+        org.junit.Assert.assertFalse(VerifyUrl.isTrusted("https://flow.akwelo.com:8443/", base))
+        org.junit.Assert.assertFalse(VerifyUrl.isTrusted(null, base))
+    }
+
     @Test fun buildsDefaultUrl() {
         assertEquals(
             "https://flow.akwelo.com/verify/selfie#token=abc",
