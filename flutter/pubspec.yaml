@@ -1,16 +1,17 @@
 name: akwelo
 description: Akwelo identity verification for Flutter. Hosted selfie capture in a WebView.
-version: 0.1.0
+version: 0.2.0
 homepage: https://github.com/akwelo/akwelo-sdks
 repository: https://github.com/akwelo/akwelo-sdks/tree/main/flutter
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
-  flutter: ">=3.19.0"
+  sdk: ">=3.5.0 <4.0.0"
+  flutter: ">=3.24.0"
 
 dependencies:
   flutter:
     sdk: flutter
+  url_launcher: ^6.2.0
   webview_flutter: ^4.10.0
   webview_flutter_android: ^4.0.0
   webview_flutter_wkwebview: ^3.16.0
@@ -18,3 +19,6 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  plugin_platform_interface: ^2.1.0
+  url_launcher_platform_interface: ^2.2.0
+  webview_flutter_platform_interface: ^2.10.0

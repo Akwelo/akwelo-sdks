@@ -4,6 +4,8 @@ import DeviceCheck
 import Foundation
 
 /// Best-effort App Attest token bound to the session (clientDataHash = SHA-256 of the token).
+/// The page forwards it to Akwelo with the capture as a device signal. Akwelo stores it and does
+/// not verify it with Apple yet, so today it adds no protection on its own.
 ///
 /// TODO(akwelo): needs an Apple Developer team, the App Attest capability/entitlement, and
 /// Akwelo backend support for attestation-object verification and key registration. The key is

@@ -11,7 +11,7 @@ as `io.github.akwelo:akwelo-android`. Use that group ID for now.
 ```kotlin
 // settings.gradle.kts: mavenCentral() must be in your repositories
 dependencies {
-    implementation("io.github.akwelo:akwelo-android:0.1.0") // later: com.akwelo:akwelo-android
+    implementation("io.github.akwelo:akwelo-android:0.2.0") // later: com.akwelo:akwelo-android
 }
 ```
 
@@ -22,30 +22,44 @@ runtime only when the page asks for it.
 
 ```kotlin
 // 1. Your backend creates a session with your secret key and returns its sessionToken.
-// 2. In the app:
-Akwelo.verify(activity, sessionToken) { result ->
+// 2. In the app (recommended): the result reaches you even if Android recreated your Activity,
+//    or restarted your process, while the capture screen was open.
+private val verify = registerForActivityResult(AkweloVerifyContract()) { result ->
     when (result.status) {
         VerifyStatus.SUBMITTED -> showPending(result.sessionId) // decision arrives at your backend
         VerifyStatus.CANCELLED -> showRetry()
-        VerifyStatus.ERROR -> showError(result.error)
+        VerifyStatus.ERROR -> showError(result.error, result.errorMessage) // error is a stable code
     }
 }
+verify.launch(AkweloVerifyRequest(sessionToken))
+
+// Or with a callback. It is invoked exactly once on the main thread while your process lives;
+// it cannot survive Android killing the process while the capture screen is open.
+Akwelo.verify(activity, sessionToken) { result -> }
 
 // Optional configuration
-Akwelo.verify(
-    activity, sessionToken,
+AkweloVerifyRequest(
+    sessionToken,
     AkweloOptions(baseUrl = "https://flow.akwelo.com", playIntegrityCloudProjectNumber = null),
-) { result -> }
+)
 ```
 
 `SUBMITTED` means capture finished, not that the user passed. Fetch the decision server side.
+With `ERROR`, `result.error` is a code from the [list in the root README](../README.md#error-codes).
+
+What the screen does for you: it stays alive across rotation, dark-mode and font-size changes
+(no reload, no lost attempt); a page that cannot load or a WebView process that dies ends in an
+`ERROR` result instead of a blank page or a crash of your app; links the person taps open in
+their browser; back cancels.
 
 ## Device attestation (Play Integrity)
 
 Set `playIntegrityCloudProjectNumber` to send a Play Integrity token (nonce = SHA-256 of the
-session token) to the page as `attest=`. **TODO:** this needs a Play Console app linked to a Google
-Cloud project with the Play Integrity API enabled; it has not been tested against real Google
-accounts yet. Attestation is best-effort: failures load the page without it.
+session token) to the page as `attest=`. **Akwelo stores the token and does not verify it with
+Google yet, so today it adds no protection.** **TODO:** this needs a Play Console app linked to a
+Google Cloud project with the Play Integrity API enabled; it has not been tested against real
+Google accounts yet. Attestation is best-effort: a failure, or no token within 5 seconds, loads the
+page without it.
 
 ## Development
 

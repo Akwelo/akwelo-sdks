@@ -7,19 +7,31 @@ export type VerifyStatus = 'submitted' | 'cancelled' | 'error';
 export interface VerifyResult {
   status: VerifyStatus;
   sessionId?: string;
+  /** Stable error code when `status` is `error`, for example `camera_unavailable`. See README. */
   error?: string;
+  /** Text for a person, in the page's language when the page reported the error. */
+  errorMessage?: string;
 }
 
 export interface VerifyOptions {
   /** Short-lived token your backend got when creating the session. */
   sessionToken: string;
-  /** Hosted capture origin. Defaults to https://flow.akwelo.com. */
+  /** Hosted capture origin. Defaults to https://flow.akwelo.com. Must be https (or localhost). */
   baseUrl?: string;
   /**
    * Optional device attestation token (Play Integrity / App Attest), or a function returning one.
-   * Obtain it with a native module; see README. Passed to the page as `attest=`.
+   * Obtain it with a native module; see README. Passed to the page as `attest=`. A function that
+   * throws or takes longer than 5 seconds is skipped: capture never waits on attestation.
    */
   attestationToken?: string | (() => Promise<string | undefined | null>);
+}
+
+/** How long capture waits for an attestation token before starting without one. */
+export const ATTESTATION_TIMEOUT_MS = 5000;
+
+/** An SDK-side failure, in the same shape as one the page reports. */
+export function sdkError(code: string, message: string): VerifyResult {
+  return { status: 'error', error: code, errorMessage: message };
 }
 
 const STATUSES: ReadonlySet<string> = new Set(['submitted', 'cancelled', 'error']);
@@ -51,7 +63,24 @@ export function isTrustedUrl(url: string | null | undefined, baseUrl: string): b
   return o !== null && o === originOf(baseUrl);
 }
 
-/** Parses a bridge message (string or object). Returns null for anything that is not an Akwelo result. */
+const LOCAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '10.0.2.2', '[::1]']);
+
+/**
+ * The origin of a usable `baseUrl`, or null. The page handles a camera and a session token, so
+ * it must be https; plain http is accepted only for a development server on this machine.
+ */
+export function validBaseOrigin(baseUrl: string | null | undefined): string | null {
+  const origin = originOf(baseUrl);
+  if (!origin) return null;
+  if (origin.startsWith('https://')) return origin;
+  const host = origin.slice('http://'.length).replace(/:\d+$/, '');
+  return origin.startsWith('http://') && LOCAL_HOSTS.has(host) ? origin : null;
+}
+
+/**
+ * Parses a bridge message (string or object). Returns null for anything that is not an Akwelo
+ * result. The page sends `error` as `{ code, message }`; a bare string is read as the code.
+ */
 export function parseResult(data: unknown): VerifyResult | null {
   let obj: unknown = data;
   if (typeof data === 'string') {
@@ -66,17 +95,35 @@ export function parseResult(data: unknown): VerifyResult | null {
   if (m.type !== RESULT_MESSAGE_TYPE || typeof m.status !== 'string' || !STATUSES.has(m.status)) return null;
   const result: VerifyResult = { status: m.status as VerifyStatus };
   if (typeof m.sessionId === 'string' && m.sessionId) result.sessionId = m.sessionId;
-  if (typeof m.error === 'string') result.error = m.error;
+  if (typeof m.error === 'string' && m.error) {
+    result.error = m.error;
+  } else if (m.error && typeof m.error === 'object') {
+    const e = m.error as Record<string, unknown>;
+    if (typeof e.code === 'string' && e.code) result.error = e.code;
+    if (typeof e.message === 'string' && e.message) result.errorMessage = e.message;
+  }
+  // An error always carries a code, so callers can switch on it.
+  if (result.status === 'error' && !result.error) result.error = 'unknown_error';
   return result;
 }
 
-export async function resolveAttestation(opt: VerifyOptions['attestationToken']): Promise<string | undefined> {
+/** The attestation token, or undefined when there is none, it failed, or it took too long. */
+export async function resolveAttestation(
+  opt: VerifyOptions['attestationToken'],
+  timeoutMs: number = ATTESTATION_TIMEOUT_MS,
+): Promise<string | undefined> {
   if (!opt) return undefined;
   if (typeof opt === 'string') return opt;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return (await opt()) ?? undefined;
+    const late = new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), timeoutMs);
+    });
+    return (await Promise.race([opt(), late])) ?? undefined;
   } catch {
     return undefined; // best-effort: load without attestation
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -88,28 +135,53 @@ export const BRIDGE_SHIM = `(function(){
   } };
 })(); true;`;
 
-/** Single-flight coordinator behind `Akwelo.verify()`; the provider registers itself as the presenter. */
+/** The provider registers itself as the presenter behind `Akwelo.verify()`. */
 export type Presenter = (options: VerifyOptions, done: (r: VerifyResult) => void) => void;
 
 let presenter: Presenter | null = null;
+let inFlight = false;
 
 export function setPresenter(p: Presenter | null): void {
   presenter = p;
 }
 
 export const Akwelo = {
-  /** Opens the capture page and resolves with the outcome. Requires `<AkweloProvider>` near the app root. */
+  /**
+   * Opens the capture page and resolves with the outcome; it never rejects. Requires
+   * `<AkweloProvider>` near the app root. One capture at a time: a call made while another is
+   * open resolves at once with `already_in_progress` and leaves the open one untouched.
+   */
   verify(options: VerifyOptions): Promise<VerifyResult> {
     return new Promise((resolve) => {
       if (!presenter) {
-        resolve({ status: 'error', error: 'AkweloProvider is not mounted' });
+        resolve(sdkError('provider_not_mounted', 'AkweloProvider is not mounted'));
         return;
       }
-      if (!options?.sessionToken?.trim()) {
-        resolve({ status: 'error', error: 'sessionToken must not be blank' });
+      if (typeof options?.sessionToken !== 'string' || !options.sessionToken.trim()) {
+        resolve(sdkError('invalid_session_token', 'sessionToken must not be blank'));
         return;
       }
-      presenter(options, resolve);
+      if (!validBaseOrigin(options.baseUrl ?? DEFAULT_BASE_URL)) {
+        resolve(sdkError('invalid_base_url', 'baseUrl must be an https URL'));
+        return;
+      }
+      if (inFlight) {
+        resolve(sdkError('already_in_progress', 'A verification is already open'));
+        return;
+      }
+      inFlight = true;
+      let settled = false;
+      const done = (r: VerifyResult) => {
+        if (settled) return;
+        settled = true;
+        inFlight = false;
+        resolve(r);
+      };
+      try {
+        presenter(options, done);
+      } catch (e) {
+        done(sdkError('presentation_failed', (e as Error)?.message ?? 'Could not open the capture screen'));
+      }
     });
   },
 };

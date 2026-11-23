@@ -33,19 +33,29 @@ const result = await Akwelo.verify({ sessionToken });
 switch (result.status) {
   case 'submitted': showPending(result.sessionId); break; // decision arrives at your backend
   case 'cancelled': showRetry(); break;
-  case 'error':     showError(result.error); break;
+  case 'error':     showError(result.error, result.errorMessage); break; // error is a stable code
 }
 ```
 
-Options: `baseUrl` (default `https://flow.akwelo.com`) and `attestationToken`.
-Prefer embedding? Render `<AkweloVerifyView sessionToken={t} onResult={fn} />` yourself.
+`verify` never rejects. With status `error`, `result.error` is a code from the
+[list in the root README](../README.md#error-codes).
+
+Options: `baseUrl` (default `https://flow.akwelo.com`, must be https) and `attestationToken`.
+Prefer embedding? Render `<AkweloVerifyView sessionToken={t} onResult={fn} />` yourself, and give
+the person a way to leave: the embedded view cannot close itself.
+
+The modal has a close button that always works. A page that cannot load, answers with an HTTP
+error, or whose web process dies ends in an `error` result, not a blank screen. Links the person
+taps open in the system browser.
 
 `submitted` only means capture finished; never treat it as a pass.
 
 ## Device attestation
 
 `attestationToken` accepts a string or an async function. Pure JS cannot produce Play Integrity or
-App Attest tokens; obtain one with a native module and pass it in. **TODO:** a companion native
+App Attest tokens; obtain one with a native module and pass it in. A function that throws, or takes
+longer than 5 seconds, is skipped. **Akwelo stores the token and does not verify it yet, so today it
+adds no protection.** **TODO:** a companion native
 module is planned once real Google Play Console and Apple Developer accounts are set up.
 
 ## Development

@@ -1,5 +1,7 @@
 import 'package:akwelo/akwelo.dart';
-import 'package:akwelo/src/contract.dart' show kResultMessageType, originOf;
+import 'package:akwelo/src/contract.dart'
+    show kResultMessageType, originOf, resolveAttestation, validBaseOrigin;
+import 'package:akwelo/src/verify_page.dart' show isPageRequest, resultForLoadError;
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -24,6 +26,21 @@ void main() {
       expect(VerifyResult.parse('{"type":"$kResultMessageType","status":"error","error":"camera_denied"}')?.error,
           'camera_denied');
     });
+    test('reads the error the hosted page sends: an object with a code and a message', () {
+      // Exactly what apps/flow postVerifyResult sends for a denied camera.
+      const fromPage = '{"type":"$kResultMessageType","sessionId":null,"status":"error",'
+          '"error":{"code":"camera_unavailable","message":"We could not use your camera."}}';
+      expect(
+        VerifyResult.parse(fromPage),
+        const VerifyResult(VerifyStatus.error,
+            error: 'camera_unavailable', errorMessage: 'We could not use your camera.'),
+      );
+    });
+    test('always gives an error result a code', () {
+      expect(VerifyResult.parse('{"type":"$kResultMessageType","status":"error"}')?.error, 'unknown_error');
+      expect(VerifyResult.parse('{"type":"$kResultMessageType","status":"cancelled","sessionId":null}'),
+          VerifyResult.cancelled);
+    });
     test('ignores foreign and malformed', () {
       expect(VerifyResult.parse('{"type":"other","status":"submitted"}'), isNull);
       expect(VerifyResult.parse('{"type":"$kResultMessageType","status":"approved"}'), isNull);
@@ -44,5 +61,83 @@ void main() {
     ]) {
       expect(originOf(u) == originOf(base), isFalse, reason: '$u');
     }
+  });
+
+  group('validBaseOrigin', () {
+    test('accepts https, and http only on this machine', () {
+      expect(validBaseOrigin('https://flow.akwelo.com/'), 'https://flow.akwelo.com');
+      expect(validBaseOrigin('https://staging.example:8443'), 'https://staging.example:8443');
+      expect(validBaseOrigin('http://localhost:5173'), 'http://localhost:5173');
+      expect(validBaseOrigin('http://10.0.2.2:5173/'), 'http://10.0.2.2:5173');
+    });
+    test('rejects anything a capture page cannot safely run on', () {
+      for (final u in [
+        'http://flow.akwelo.com',
+        'http://192.168.1.20:5173',
+        'flow.akwelo.com',
+        'ftp://x',
+        'https://u:p@x.com',
+        '',
+        null,
+      ]) {
+        expect(validBaseOrigin(u), isNull, reason: '$u');
+      }
+    });
+  });
+
+  group('resolveAttestation', () {
+    test('returns the token, and null when the provider fails', () async {
+      expect(await resolveAttestation(null), isNull);
+      expect(await resolveAttestation(() async => 't'), 't');
+      // The usual way an app writes it: a provider that returns a non-null String.
+      Future<String> typed() async => 'typed';
+      expect(await resolveAttestation(typed), 'typed');
+      expect(await resolveAttestation(() async => throw StateError('no')), isNull);
+    });
+    test('does not wait on a provider that never answers', () async {
+      final never = Future<String?>.delayed(const Duration(hours: 1), () => 'late');
+      expect(await resolveAttestation(() => never, timeout: const Duration(milliseconds: 20)), isNull);
+    });
+  });
+
+  group('load failures', () {
+    const page = 'https://flow.akwelo.com';
+    VerifyResult? err({
+      String? url,
+      bool main = true,
+      bool terminated = false,
+      int code = -2,
+      String description = 'net::ERR_INTERNET_DISCONNECTED',
+    }) =>
+        resultForLoadError(
+          pageOrigin: page,
+          failingUrl: url,
+          isForMainFrame: main,
+          processTerminated: terminated,
+          errorCode: code,
+          description: description,
+        );
+
+    test('the capture page failing to load is an error result', () {
+      expect(err(url: '$page/verify/selfie')?.error, 'page_load_failed');
+      expect(err()?.error, 'page_load_failed'); // platforms that give no URL
+      expect(err(description: '')?.errorMessage, isNotEmpty);
+    });
+    test('a dead web process is an error result', () {
+      expect(err(terminated: true, main: false)?.error, 'webview_crashed');
+    });
+    test('resources, tapped links and cancelled navigations are not', () {
+      expect(err(main: false), isNull);
+      expect(err(url: 'https://akwelo.com/privacy'), isNull);
+      expect(err(code: -999), isNull);
+      expect(err(code: 102), isNull);
+    });
+    test('an HTTP error counts only for the page itself', () {
+      final url = Uri.parse('$page/verify/selfie#token=t');
+      expect(isPageRequest(url, Uri.parse('$page/verify/selfie')), isTrue);
+      expect(isPageRequest(url, Uri.parse('$page/favicon.ico')), isFalse);
+      expect(isPageRequest(url, Uri.parse('https://cdn.example/verify/selfie')), isFalse);
+      expect(isPageRequest(url, null), isFalse);
+    });
   });
 }

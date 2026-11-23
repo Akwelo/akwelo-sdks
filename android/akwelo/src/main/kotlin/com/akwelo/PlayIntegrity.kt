@@ -9,7 +9,8 @@ import java.security.MessageDigest
 
 /**
  * Requests a classic Play Integrity token bound to the session (nonce = SHA-256 of the token).
- * Akwelo's backend decrypts and checks it with Google.
+ * The page forwards it to Akwelo with the capture as a device signal. Akwelo stores it and does
+ * not verify it with Google yet, so today it adds no protection on its own.
  *
  * TODO(akwelo): needs a Play Console app linked to a Google Cloud project with the Play Integrity
  * API enabled, and server-side verification credentials. Untested until those exist.

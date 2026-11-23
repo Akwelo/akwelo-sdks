@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'Akwelo'
-  s.version          = '0.1.0'
+  s.version          = '0.2.0'
   s.summary          = 'Akwelo identity verification: hosted selfie capture in a WKWebView.'
   s.homepage         = 'https://github.com/akwelo/akwelo-sdks'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }

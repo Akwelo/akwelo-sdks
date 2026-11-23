@@ -1,5 +1,6 @@
 export {
   Akwelo,
+  ATTESTATION_TIMEOUT_MS,
   DEFAULT_BASE_URL,
   RESULT_MESSAGE_TYPE,
   buildVerifyUrl,

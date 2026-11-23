@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Modal, SafeAreaView, StyleSheet } from 'react-native';
+import { Modal, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { AkweloVerifyView } from './AkweloVerifyView';
 import { setPresenter, type VerifyOptions, type VerifyResult } from './core';
 
@@ -18,9 +18,8 @@ export function AkweloProvider({ children }: { children?: ReactNode }) {
   const activeRef = useRef<Active | null>(null);
 
   useEffect(() => {
+    // `Akwelo.verify` lets one capture through at a time, so there is never one to replace here.
     setPresenter((options, done) => {
-      // Only one verification at a time; a superseded caller is told it was cancelled.
-      activeRef.current?.done({ status: 'cancelled' });
       const next = { options, done };
       activeRef.current = next;
       setActive(next);
@@ -40,12 +39,19 @@ export function AkweloProvider({ children }: { children?: ReactNode }) {
     setActive(null);
     cur?.done(r);
   };
+  const cancel = () => finish({ status: 'cancelled' });
 
   return (
     <>
       {children}
-      <Modal visible={!!active} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => finish({ status: 'cancelled' })}>
+      <Modal visible={!!active} animationType="slide" presentationStyle="fullScreen" onRequestClose={cancel}>
         <SafeAreaView style={styles.fill}>
+          {/* Always there, so a page that fails to draw can never trap the person (iOS has no back button). */}
+          <View style={styles.bar}>
+            <Pressable onPress={cancel} hitSlop={12} accessibilityRole="button" accessibilityLabel="Close">
+              <Text style={styles.close}>{'✕'}</Text>
+            </Pressable>
+          </View>
           {active && <AkweloVerifyView key={active.options.sessionToken} {...active.options} onResult={finish} />}
         </SafeAreaView>
       </Modal>
@@ -53,4 +59,8 @@ export function AkweloProvider({ children }: { children?: ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({ fill: { flex: 1 } });
+const styles = StyleSheet.create({
+  fill: { flex: 1, backgroundColor: '#fff' },
+  bar: { height: 44, paddingHorizontal: 16, alignItems: 'flex-end', justifyContent: 'center' },
+  close: { fontSize: 20, color: '#111' },
+});
