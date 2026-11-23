@@ -33,6 +33,12 @@ class FakeWebViewController extends PlatformWebViewController {
   final Map<String, void Function(JavaScriptMessage)> channels = {};
   void Function(PlatformWebViewPermissionRequest)? onPermission;
 
+  /// Every script the SDK evaluated in the page, in order.
+  final List<String> scripts = [];
+
+  @override
+  Future<void> runJavaScript(String javaScript) async => scripts.add(javaScript);
+
   /// The page calling `window.<channel>.postMessage(json)`.
   void post(String channel, String json) => channels[channel]!(JavaScriptMessage(message: json));
 

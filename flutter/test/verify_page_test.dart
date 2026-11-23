@@ -172,6 +172,50 @@ void main() {
     expect(r3.errorMessage, contains('503'));
   });
 
+  testWidgets('forwards screen capture: env= first, then AkweloHost.signal on load and change', (tester) async {
+    late void Function(bool) emit;
+    var stopped = false;
+    final result = await open(tester,
+        options: AkweloOptions(watchScreenCapture: (onChange) {
+          emit = onChange;
+          onChange(false);
+          return () => stopped = true;
+        }));
+    final c = web.controller!;
+    expect(c.loaded!.fragment, startsWith('token=vst_abc&env='));
+    expect(c.scripts, isEmpty); // nothing before the page has loaded
+    web.delegate!.onPageFinished!('https://flow.akwelo.com/verify/selfie');
+    expect(c.scripts.single, contains('"screen_capture":"inactive"'));
+    emit(true);
+    emit(true); // no change: not sent again
+    emit(false);
+    expect(c.scripts.length, 3);
+    expect(c.scripts[1], contains('"screen_capture":"active"'));
+    expect(c.scripts[2], contains('"screen_capture":"inactive","source":"flutter","screen_capture_seen":true'));
+    web.delegate!.onPageFinished!('https://flow.akwelo.com/verify/selfie'); // re-sent after every load
+    expect(c.scripts.last, c.scripts[2]);
+    await tester.tap(find.byKey(const ValueKey('akwelo-close')));
+    await settle(tester, result);
+    expect(stopped, isTrue);
+  });
+
+  testWidgets('no screen capture option: nothing is sent', (tester) async {
+    final result = await open(tester);
+    web.delegate!.onPageFinished!('https://flow.akwelo.com/verify/selfie');
+    expect(web.controller!.scripts, isEmpty);
+    expect(web.controller!.loaded!.fragment, 'token=vst_abc');
+    await tester.tap(find.byKey(const ValueKey('akwelo-close')));
+    await settle(tester, result);
+  });
+
+  testWidgets('a fixed screenCaptureActive value is forwarded', (tester) async {
+    final result = await open(tester, options: const AkweloOptions(screenCaptureActive: true));
+    web.delegate!.onPageFinished!('https://flow.akwelo.com/verify/selfie');
+    expect(web.controller!.scripts.single, contains('"screen_capture":"active","source":"flutter","screen_capture_seen":true'));
+    await tester.tap(find.byKey(const ValueKey('akwelo-close')));
+    await settle(tester, result);
+  });
+
   testWidgets('only the camera is granted', (tester) async {
     final result = await open(tester);
     final cam = _Permission({WebViewPermissionResourceType.camera});

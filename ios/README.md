@@ -63,6 +63,13 @@ without it. **TODO:** requires an Apple Developer team with the App Attest capab
 `com.apple.developer.devicecheck.appattest-environment` entitlement, and backend verification. Not
 tested on real devices yet; failures fall back to loading without attestation.
 
+## Screen capture
+
+While the capture screen is open the SDK tells the page whether the screen is being recorded,
+mirrored or sent over AirPlay (`UIScreen.isCaptured`, updated on
+`UIScreen.capturedDidChangeNotification`), and Akwelo sends a session captured that way to review.
+No setup.
+
 ## Development
 
 ```

@@ -40,7 +40,8 @@ switch (result.status) {
 `verify` never rejects. With status `error`, `result.error` is a code from the
 [list in the root README](../README.md#error-codes).
 
-Options: `baseUrl` (default `https://flow.akwelo.com`, must be https) and `attestationToken`.
+Options: `baseUrl` (default `https://flow.akwelo.com`, must be https), `attestationToken` and
+`screenCaptureActive` (see below).
 Prefer embedding? Render `<AkweloVerifyView sessionToken={t} onResult={fn} />` yourself, and give
 the person a way to leave: the embedded view cannot close itself.
 
@@ -57,6 +58,42 @@ App Attest tokens; obtain one with a native module and pass it in. A function th
 longer than 5 seconds, is skipped. **Akwelo stores the token and does not verify it yet, so today it
 adds no protection.** **TODO:** a companion native
 module is planned once real Google Play Console and Apple Developer accounts are set up.
+
+## Screen capture
+
+Akwelo sends a session to review when the screen was recorded, mirrored or shared while the selfie
+was taken. React Native cannot see this; feed `screenCaptureActive` from a small native module of
+your own. It takes a boolean, or a function that subscribes to changes and returns an unsubscribe
+function. Without it nothing is sent, and Akwelo records the capture environment as `unknown`.
+
+```ts
+import { NativeEventEmitter, NativeModules } from 'react-native';
+const { ScreenCapture } = NativeModules; // your module, below
+const events = new NativeEventEmitter(ScreenCapture);
+
+await Akwelo.verify({
+  sessionToken,
+  screenCaptureActive: (onChange) => {
+    // null means unknown (Android 14 and below with nothing seen): report nothing.
+    ScreenCapture.isCaptured().then((v: boolean | null) => v != null && onChange(v));
+    const sub = events.addListener('screenCaptureChanged', (e) => onChange(e.active));
+    return () => sub.remove();
+  },
+});
+```
+
+iOS side (Swift, in an `RCTEventEmitter` subclass): resolve `isCaptured` with
+`UIScreen.main.isCaptured`, and on `UIScreen.capturedDidChangeNotification` send
+`screenCaptureChanged` with `["active": UIScreen.main.isCaptured]`.
+
+Android side (Kotlin): on Android 15+, `activity.windowManager.addScreenRecordingCallback(mainExecutor)
+{ state -> emit(state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) }` (declare
+`android.permission.DETECT_SCREEN_RECORDING`). On Android 14 and below only report `true`, while
+`DisplayManager.getDisplays()` has a display that is on with `Display.FLAG_PRESENTATION`, other
+than `Display.DEFAULT_DISPLAY` and the activity's own display; never report `false` there
+(resolve `isCaptured` with `null`).
+Screen recorders, Cast mirroring and remote-access apps cannot be seen on those versions, so
+staying silent lets Akwelo record `unknown` instead of "not detected".
 
 ## Development
 

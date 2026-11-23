@@ -7,6 +7,7 @@ export 'src/contract.dart'
         VerifyResult,
         VerifyStatus,
         AkweloOptions,
+        ScreenCaptureWatcher,
         buildVerifyUrl,
         kAttestationTimeout,
         kDefaultBaseUrl;

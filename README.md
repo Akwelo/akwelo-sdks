@@ -32,7 +32,25 @@ backend creates a verification session with your secret API key and hands the sh
 
    `error` is present only with status `error`. The SDKs also accept a bare string there and
    read it as the code.
-4. `submitted` only means capture finished. The decision (pass / fail / review) is delivered
+4. **Capture environment.** After every page load and on every change, the SDK evaluates
+   `try{window.AkweloHost&&window.AkweloHost.signal(<report>)}catch(e){}` in the page, and puts
+   the first report in the fragment as `&env=<base64url JSON>`:
+
+   ```json
+   {"screen_capture":"active|inactive","source":"ios|android|react-native|flutter","screen_capture_seen":true}
+   ```
+
+   `screen_capture` is whether the screen is being recorded, mirrored or shared right now.
+   `screen_capture_seen` is present once any capture was seen since the screen opened (also an
+   Android 14 screenshot) and stays after it stops. The report is evidence, not a verdict: Akwelo's
+   server decides (a capture sends an approval to review) and trusts it more with a verified
+   device attestation. iOS and Android detect it themselves; React Native and Flutter forward what
+   the host app reports (`screenCaptureActive`); when nothing is known nothing is sent. Android 15+
+   detects screen recording and projection of the app; Android 14 detects screenshots; all
+   versions detect an external presentation display (HDMI, Miracast, Smart View). Screen
+   recorders, Cast mirroring and remote-access apps are not detectable on Android 14 and below,
+   where the session reports nothing unless a presentation display or screenshot is seen.
+5. `submitted` only means capture finished. The decision (pass / fail / review) is delivered
    to **your backend** via the session API or webhook; never trust a client-side result.
 
 ## What every SDK guarantees

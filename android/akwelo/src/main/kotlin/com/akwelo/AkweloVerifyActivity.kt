@@ -6,11 +6,18 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.hardware.display.DisplayManager
 import android.net.http.SslError
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Display
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
@@ -32,6 +39,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import java.util.function.Consumer
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -46,6 +54,21 @@ class AkweloVerifyActivity : AppCompatActivity() {
     private var requestId: String? = null
     private var pendingPermission: PermissionRequest? = null
     private var delivered = false
+
+    // Screen capture (recording, mirroring, a second display, a screenshot) while the selfie is
+    // taken: evidence for Akwelo, sent to the page. FLAG_SECURE is deliberately not set.
+    private val capture = HostSignalState()
+    private var pageLoaded = false
+    private var recording = false
+    private var mirrored = false
+    private var displayManager: DisplayManager? = null
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = refreshDisplays()
+        override fun onDisplayRemoved(displayId: Int) = refreshDisplays()
+        override fun onDisplayChanged(displayId: Int) = refreshDisplays()
+    }
+    private var recordingCallback: Any? = null // Consumer<Int>, API 35+
+    private var screenshotCallback: Any? = null // Activity.ScreenCaptureCallback, API 34+
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,14 +134,115 @@ class AkweloVerifyActivity : AppCompatActivity() {
             override fun handleOnBackPressed() = finishWith(VerifyResult.cancelled())
         })
 
+        watchCapture()
         val projectNumber = intent.getLongExtra(EXTRA_CLOUD_PROJECT, -1L)
         lifecycleScope.launch {
             // Attestation is best-effort: the page never waits on Google Play services.
             val attest = if (projectNumber <= 0) null else withTimeoutOrNull(AkweloOptions.ATTESTATION_TIMEOUT_MS) {
                 PlayIntegrity.token(this@AkweloVerifyActivity, projectNumber, token)
             }
-            if (!delivered) webView?.loadUrl(VerifyUrl.build(baseUrl, token, attest))
+            if (!delivered) webView?.loadUrl(VerifyUrl.build(baseUrl, token, attest, capture.env()))
         }
+    }
+
+    /** Starts watching for screen capture and records the current state, before the page loads. */
+    private fun watchCapture() {
+        displayManager = getSystemService(DisplayManager::class.java)?.also {
+            it.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+        }
+        mirrored = mirroredNow()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            try {
+                val cb = Consumer<Int> { state ->
+                    recording = state == WindowManager.SCREEN_RECORDING_STATE_VISIBLE
+                    updateCapture()
+                }
+                val initial = windowManager.addScreenRecordingCallback(mainExecutor, cb)
+                recordingCallback = cb
+                recording = initial == WindowManager.SCREEN_RECORDING_STATE_VISIBLE
+                capture.complete = true
+            } catch (_: SecurityException) {
+                // DETECT_SCREEN_RECORDING removed from the merged manifest: displays only.
+            }
+        }
+        // Below API 35 only a presentation display or a screenshot can be seen; until one is,
+        // HostSignalState reports nothing and Akwelo records `unknown`.
+        if (displayManager != null || recordingCallback != null) capture.set(recording || mirrored)
+    }
+
+    private fun mirroredNow(): Boolean = CaptureDisplays.mirrored(
+        ownDisplayId(),
+        displayManager?.displays.orEmpty().map { CaptureDisplays.Info(it.displayId, it.flags, it.state) },
+    )
+
+    /** The display this activity is shown on (an external monitor under DeX or desktop windowing). */
+    private fun ownDisplayId(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display?.displayId ?: Display.DEFAULT_DISPLAY
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.displayId
+        }
+
+    private fun refreshDisplays() {
+        mirrored = mirroredNow()
+        updateCapture()
+    }
+
+    private fun updateCapture() {
+        if (capture.set(recording || mirrored)) sendCapture()
+    }
+
+    /** Hands the screen capture state to the page: after every load and on every change. */
+    private fun sendCapture() {
+        val script = capture.script() ?: return
+        if (pageLoaded && !delivered) webView?.evaluateJavascript(script, null)
+    }
+
+    // A window moved to another display (DeX, desktop windowing) brings no display event. The
+    // manifest's configChanges keep the activity alive across that move and Android calls
+    // onConfigurationChanged; a move that changes an unhandled field recreates the activity and
+    // watchCapture() recomputes. onResume covers a move made while the activity was paused.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (displayManager != null) refreshDisplays()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (displayManager != null) refreshDisplays()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // A screenshot says capture was seen; it does not mean the screen is being captured now.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && webView != null) {
+            try {
+                val cb = ScreenCaptureCallback { if (capture.markSeen()) sendCapture() }
+                registerScreenCaptureCallback(mainExecutor, cb)
+                screenshotCallback = cb
+            } catch (_: SecurityException) {
+                // DETECT_SCREEN_CAPTURE removed from the merged manifest.
+            }
+        }
+    }
+
+    override fun onStop() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            (screenshotCallback as? ScreenCaptureCallback)?.let { unregisterScreenCaptureCallback(it) }
+        }
+        screenshotCallback = null
+        super.onStop()
+    }
+
+    private fun stopWatchingCapture() {
+        displayManager?.unregisterDisplayListener(displayListener)
+        displayManager = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            @Suppress("UNCHECKED_CAST")
+            (recordingCallback as? Consumer<Int>)?.let { windowManager.removeScreenRecordingCallback(it) }
+        }
+        recordingCallback = null
     }
 
     private inner class Client : WebViewClient() {
@@ -138,6 +262,12 @@ class AkweloVerifyActivity : AppCompatActivity() {
 
         override fun onPageCommitVisible(view: WebView, url: String) {
             spinner.visibility = View.GONE
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            if (!VerifyUrl.isTrusted(url, baseUrl)) return
+            pageLoaded = true
+            sendCapture()
         }
 
         // The capture page itself did not load. WebView's own error page prints the URL, session
@@ -214,6 +344,7 @@ class AkweloVerifyActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        stopWatchingCapture()
         // Closed without a result (the task was removed, the host finished us): report cancellation
         // once. Not when Android is only recreating the screen: the capture carries on then.
         if (!delivered && isFinishing) {

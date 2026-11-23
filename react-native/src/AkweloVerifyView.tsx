@@ -4,12 +4,16 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import {
   BRIDGE_SHIM,
   DEFAULT_BASE_URL,
+  HostSignalState,
   buildVerifyUrl,
+  encodeHostEnv,
+  hostSignalScript,
   isTrustedUrl,
   parseResult,
   resolveAttestation,
   sdkError,
   validBaseOrigin,
+  watchScreenCapture,
   type VerifyOptions,
   type VerifyResult,
 } from './core';
@@ -29,9 +33,34 @@ const Loading = () => (
  * Embeddable capture view. Most apps use `Akwelo.verify()` with `<AkweloProvider>` instead.
  * When you embed it, give the person a way to leave: the view cannot close itself.
  */
-export function AkweloVerifyView({ sessionToken, baseUrl = DEFAULT_BASE_URL, attestationToken, onResult }: AkweloVerifyViewProps) {
+export function AkweloVerifyView({
+  sessionToken,
+  baseUrl = DEFAULT_BASE_URL,
+  attestationToken,
+  screenCaptureActive,
+  onResult,
+}: AkweloVerifyViewProps) {
   const [uri, setUri] = useState<string | null>(null);
   const done = useRef(false);
+  const web = useRef<WebView>(null);
+  const loaded = useRef(false);
+  // Screen capture as last reported by the host app; undefined until it reports (then nothing is sent).
+  const capture = useRef(new HostSignalState());
+  const sendCapture = () => {
+    const { active, seen } = capture.current;
+    if (loaded.current && active !== undefined) web.current?.injectJavaScript(hostSignalScript(active, 'react-native', seen));
+  };
+
+  // Forwarded to the page on every change: `screenCaptureActive` is evidence for Akwelo's server.
+  useEffect(
+    () =>
+      watchScreenCapture(screenCaptureActive, (active) => {
+        if (capture.current.set(active)) sendCapture();
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [screenCaptureActive],
+  );
+
   const finish = (r: VerifyResult) => {
     if (done.current) return;
     done.current = true;
@@ -48,7 +77,9 @@ export function AkweloVerifyView({ sessionToken, baseUrl = DEFAULT_BASE_URL, att
     resolveAttestation(attestationToken).then((attest) => {
       if (!alive) return;
       try {
-        setUri(buildVerifyUrl(baseUrl, sessionToken, attest));
+        const { active, seen } = capture.current;
+        const env = active === undefined ? null : encodeHostEnv(active, 'react-native', seen);
+        setUri(buildVerifyUrl(baseUrl, sessionToken, attest, env));
       } catch (e) {
         finish(sdkError('invalid_session_token', (e as Error).message));
       }
@@ -69,6 +100,7 @@ export function AkweloVerifyView({ sessionToken, baseUrl = DEFAULT_BASE_URL, att
 
   return (
     <WebView
+      ref={web}
       source={{ uri }}
       style={styles.fill}
       // Other origins never load here; react-native-webview hands them to the system browser.
@@ -88,6 +120,11 @@ export function AkweloVerifyView({ sessionToken, baseUrl = DEFAULT_BASE_URL, att
       // Keep the top-level document on the Akwelo origin; no other site gets the bridge.
       onShouldStartLoadWithRequest={(req) => req.isTopFrame === false || isTrustedUrl(req.url, baseUrl)}
       setSupportMultipleWindows={false}
+      onLoadEnd={(e) => {
+        if (!isTrustedUrl(e.nativeEvent.url, baseUrl)) return;
+        loaded.current = true;
+        sendCapture(); // after every load as well as on every change
+      }}
       onMessage={(e: WebViewMessageEvent) => {
         if (!isTrustedUrl(e.nativeEvent.url, baseUrl)) return;
         const r = parseResult(e.nativeEvent.data);

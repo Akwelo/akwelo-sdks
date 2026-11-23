@@ -38,7 +38,11 @@ class Akwelo {
       final result = await Navigator.of(context).push<VerifyResult>(
         PageRouteBuilder<VerifyResult>(
           fullscreenDialog: true,
-          pageBuilder: (_, __, ___) => AkweloVerifyPage(url: url),
+          pageBuilder: (_, __, ___) => AkweloVerifyPage(
+            url: url,
+            screenCaptureActive: options.screenCaptureActive,
+            watchScreenCapture: options.watchScreenCapture,
+          ),
         ),
       );
       return result ?? VerifyResult.cancelled;

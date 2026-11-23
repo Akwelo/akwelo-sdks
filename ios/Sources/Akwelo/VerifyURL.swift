@@ -33,8 +33,9 @@ enum VerifyURL {
         return c
     }()
 
-    /// Builds `{baseUrl}/verify/selfie#token=...[&attest=...]`. Secrets stay in the fragment.
-    static func build(baseURL: URL, sessionToken: String, attestation: String? = nil) throws -> URL {
+    /// Builds `{baseUrl}/verify/selfie#token=...[&attest=...][&env=...]`. Secrets stay in the
+    /// fragment. `env` is the first screen capture report (`HostSignal.env`).
+    static func build(baseURL: URL, sessionToken: String, attestation: String? = nil, env: String? = nil) throws -> URL {
         guard !sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AkweloError.invalidSessionToken
         }
@@ -42,6 +43,7 @@ enum VerifyURL {
         while base.hasSuffix("/") { base.removeLast() }
         var s = base + "/verify/selfie#token=" + encode(sessionToken)
         if let a = attestation, !a.isEmpty { s += "&attest=" + encode(a) }
+        if let e = env, !e.isEmpty { s += "&env=" + encode(e) }
         guard let url = URL(string: s) else { throw AkweloError.invalidBaseURL }
         return url
     }

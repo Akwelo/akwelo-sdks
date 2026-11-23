@@ -1,10 +1,53 @@
 import 'package:akwelo/akwelo.dart';
+import 'dart:convert';
+
 import 'package:akwelo/src/contract.dart'
-    show kResultMessageType, originOf, resolveAttestation, validBaseOrigin;
+    show
+        HostSignalState,
+        encodeHostEnv,
+        hostSignal,
+        hostSignalScript,
+        kResultMessageType,
+        originOf,
+        resolveAttestation,
+        validBaseOrigin;
 import 'package:akwelo/src/verify_page.dart' show isPageRequest, resultForLoadError;
 import 'package:flutter_test/flutter_test.dart';
 
+/// Decoded the way the hosted page does (readHostEnv in apps/flow): base64url, padding optional.
+Object? _decodeEnv(String v) => jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(v))));
+
 void main() {
+  group('host signal (screen capture)', () {
+    test('payload the hosted page expects', () {
+      expect(hostSignal(true), {'screen_capture': 'active', 'source': 'flutter'});
+      expect(hostSignal(false, seen: true),
+          {'screen_capture': 'inactive', 'source': 'flutter', 'screen_capture_seen': true});
+    });
+    test('env= value is base64url JSON without padding', () {
+      final env = encodeHostEnv(true);
+      expect(env, matches(RegExp(r'^[A-Za-z0-9_-]+$')));
+      expect(_decodeEnv(env), {'screen_capture': 'active', 'source': 'flutter'});
+      expect(buildVerifyUrl(kDefaultBaseUrl, 'abc', attestation: 'a', env: env).toString(),
+          'https://flow.akwelo.com/verify/selfie#token=abc&attest=a&env=$env');
+    });
+    test('the script never throws in the page', () {
+      expect(hostSignalScript(false),
+          'try{window.AkweloHost&&window.AkweloHost.signal({"screen_capture":"inactive","source":"flutter"})}catch(e){}');
+    });
+    test('reports changes only, and remembers a capture once seen', () {
+      final s = HostSignalState();
+      expect(s.payload(), isNull);
+      expect(s.set(false), isTrue);
+      expect(s.set(false), isFalse);
+      expect(s.seen, isFalse);
+      expect(s.set(true), isTrue);
+      expect(s.set(false), isTrue);
+      expect(s.payload(), {'screen_capture': 'inactive', 'source': 'flutter', 'screen_capture_seen': true});
+      expect(s.markSeen(), isFalse);
+    });
+  });
+
   group('buildVerifyUrl', () {
     test('default URL keeps the token in the fragment', () {
       expect(buildVerifyUrl(kDefaultBaseUrl, 'abc').toString(),

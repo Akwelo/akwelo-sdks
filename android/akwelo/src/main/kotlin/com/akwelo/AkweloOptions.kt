@@ -10,10 +10,11 @@ data class AkweloOptions(
      */
     val baseUrl: String = DEFAULT_BASE_URL,
     /**
-     * Google Cloud project number linked to your app in the Play Console. When set, a Play Integrity
-     * token is requested and passed to the page as `attest=`. Null disables attestation. Capture
-     * never waits on it: no token within [ATTESTATION_TIMEOUT_MS] means the page loads without one.
-     * TODO(akwelo): requires a real Play Console + Google Cloud project; not configured yet.
+     * The Google Cloud project number Akwelo gives you for Play Integrity. It is Akwelo's project,
+     * not your own: Akwelo decodes the token, and Google only lets the project that requested a
+     * token decode it. When set, a Play Integrity token is requested and passed to the page as
+     * `attest=`. Null disables attestation. Capture never waits on it: no token within
+     * [ATTESTATION_TIMEOUT_MS] means the page loads without one.
      */
     val playIntegrityCloudProjectNumber: Long? = null,
 ) {
@@ -26,13 +27,18 @@ data class AkweloOptions(
 }
 
 object VerifyUrl {
-    /** Builds `{baseUrl}/verify/selfie#token=...[&attest=...]`. Secrets stay in the fragment. */
+    /**
+     * Builds `{baseUrl}/verify/selfie#token=...[&attest=...][&env=...]`. Secrets stay in the
+     * fragment. `env` is the first screen capture report.
+     */
     @JvmStatic
-    fun build(baseUrl: String, sessionToken: String, attestationToken: String? = null): String {
+    @JvmOverloads
+    fun build(baseUrl: String, sessionToken: String, attestationToken: String? = null, env: String? = null): String {
         require(sessionToken.isNotBlank()) { "sessionToken must not be blank" }
         val base = baseUrl.trimEnd('/')
         val sb = StringBuilder(base).append("/verify/selfie#token=").append(encode(sessionToken))
         if (!attestationToken.isNullOrEmpty()) sb.append("&attest=").append(encode(attestationToken))
+        if (!env.isNullOrEmpty()) sb.append("&env=").append(encode(env))
         return sb.toString()
     }
 

@@ -41,14 +41,18 @@ public enum Akwelo {
                 await AppAttest.token(sessionToken: sessionToken)
             }
         }
-        let url = try VerifyURL.build(baseURL: options.baseURL, sessionToken: sessionToken, attestation: attestation)
+        // Screen recording, mirroring or AirPlay while the selfie is taken: evidence for Akwelo.
+        var capture = HostSignalState()
+        _ = capture.set(UIScreen.main.isCaptured)
+        let url = try VerifyURL.build(baseURL: options.baseURL, sessionToken: sessionToken,
+                                      attestation: attestation, env: capture.env)
         // `present` does nothing, and says nothing, from a controller that is off screen or already
         // presenting. Without this check the caller would wait forever.
         guard presenter.viewIfLoaded?.window != nil, presenter.presentedViewController == nil else {
             return .failure("presentation_failed", "The presenting view controller is off screen or already presenting")
         }
         return await withCheckedContinuation { continuation in
-            let vc = AkweloVerifyViewController(url: url, origin: options.baseURL) { result in
+            let vc = AkweloVerifyViewController(url: url, origin: options.baseURL, capture: capture) { result in
                 continuation.resume(returning: result)
             }
             vc.modalPresentationStyle = .fullScreen
@@ -81,12 +85,29 @@ final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler
     private var outcome: VerifyResult?
     private var webView: WKWebView!
     private let spinner = UIActivityIndicatorView(style: .medium)
+    private var capture: HostSignalState
+    private var pageLoaded = false
 
-    init(url: URL, origin: URL, onResult: @escaping (VerifyResult) -> Void) {
+    init(url: URL, origin: URL, capture: HostSignalState, onResult: @escaping (VerifyResult) -> Void) {
         self.url = url
         self.origin = origin
+        self.capture = capture
         self.onResult = onResult
         super.init(nibName: nil, bundle: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(captureChanged),
+                                               name: UIScreen.capturedDidChangeNotification, object: nil)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func captureChanged() {
+        if capture.set(UIScreen.main.isCaptured) { sendCapture() }
+    }
+
+    /// Hands the screen capture state to the page: after every load and on every change.
+    private func sendCapture() {
+        guard pageLoaded, outcome == nil, let script = capture.script else { return }
+        webView?.evaluateJavaScript(script, completionHandler: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -187,6 +208,9 @@ final class AkweloVerifyViewController: UIViewController, WKScriptMessageHandler
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         spinner.stopAnimating()
+        guard VerifyURL.isTrusted(webView.url, base: origin) else { return }
+        pageLoaded = true
+        sendCapture()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {

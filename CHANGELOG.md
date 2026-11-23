@@ -7,6 +7,18 @@ All four SDKs share a version.
 Reliability release. The public entry points are unchanged; `VerifyResult` gains `errorMessage`
 and `result.error` is now always a stable code (it used to be free text, or lost).
 
+### New in every SDK
+- **Screen capture is reported.** Recording, mirroring or sharing the screen while the selfie is
+  taken is a sign of coaching or a remote-access scam. The SDK sends it to the capture page
+  (`window.AkweloHost.signal`, and `env=` in the fragment) and Akwelo sends such a session to
+  review. iOS uses `UIScreen.isCaptured`. Android 15+ detects screen recording and projection of
+  the app; Android 14 detects screenshots (as `screen_capture_seen`); all versions detect an
+  external presentation display (HDMI, Miracast, Smart View). Screen recorders, Cast mirroring and
+  remote-access apps are not detectable on Android 14 and below, where the session reports nothing
+  unless one of those is seen (Akwelo records `unknown`). React Native and Flutter take `screenCaptureActive` (and Flutter `watchScreenCapture`) from your app's native code.
+  `FLAG_SECURE` is not set. Android adds the install-time permissions `DETECT_SCREEN_RECORDING`
+  and `DETECT_SCREEN_CAPTURE`.
+
 ### Fixed in every SDK
 - **Error details from the capture page were lost or garbled.** The page sends
   `error: { code, message }`; the SDKs expected a string. iOS, React Native and Flutter dropped
@@ -25,6 +37,8 @@ and `result.error` is now always a stable code (it used to be free text, or lost
   verify them yet.
 
 ### Android
+- `playIntegrityCloudProjectNumber` is the Cloud project number Akwelo gives you, not your own
+  project's: Akwelo decodes the token. The documentation said otherwise.
 - A dead WebView process no longer takes the host app down with it.
 - The capture screen is no longer reloaded (costing an attempt) on dark-mode, font-size, locale,
   keyboard or multi-window changes.

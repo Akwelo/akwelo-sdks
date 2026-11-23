@@ -10,9 +10,15 @@ import 'contract.dart';
 
 /// Full-screen capture page. Pops with a [VerifyResult]. Most apps call [Akwelo.verify] instead.
 class AkweloVerifyPage extends StatefulWidget {
-  const AkweloVerifyPage({super.key, required this.url});
+  const AkweloVerifyPage({super.key, required this.url, this.screenCaptureActive, this.watchScreenCapture});
 
   final Uri url;
+
+  /// See [AkweloOptions.screenCaptureActive].
+  final bool? screenCaptureActive;
+
+  /// See [AkweloOptions.watchScreenCapture].
+  final ScreenCaptureWatcher? watchScreenCapture;
 
   @override
   State<AkweloVerifyPage> createState() => _AkweloVerifyPageState();
@@ -49,6 +55,35 @@ class _AkweloVerifyPageState extends State<AkweloVerifyPage> {
   late final WebViewController _controller;
   bool _done = false;
   bool _loading = true;
+  bool _pageLoaded = false;
+  final HostSignalState _capture = HostSignalState();
+  void Function()? _stopWatching;
+
+  /// Screen capture reached the page: after every load and on every change.
+  void _sendCapture() {
+    final script = _capture.script();
+    if (!_pageLoaded || script == null || _done) return;
+    _controller.runJavaScript(script).catchError((Object _) {});
+  }
+
+  void _onCapture(bool active) {
+    if (_capture.set(active)) _sendCapture();
+  }
+
+  void _watchCapture() {
+    final watch = widget.watchScreenCapture;
+    if (watch != null) {
+      try {
+        _stopWatching = watch((active) {
+          if (mounted) _onCapture(active);
+        });
+      } catch (_) {
+        // The host's native code failed: send nothing, Akwelo records `unknown`.
+      }
+    } else if (widget.screenCaptureActive != null) {
+      _capture.set(widget.screenCaptureActive!);
+    }
+  }
 
   @override
   void initState() {
@@ -85,8 +120,12 @@ class _AkweloVerifyPageState extends State<AkweloVerifyPage> {
           if (req.isMainFrame) _openOutside(req.url);
           return NavigationDecision.prevent;
         },
-        onPageFinished: (_) {
+        onPageFinished: (url) {
           if (mounted && _loading) setState(() => _loading = false);
+          if (origin != null && originOf(url) == origin) {
+            _pageLoaded = true;
+            _sendCapture();
+          }
         },
         onHttpError: (e) {
           if (!isPageRequest(widget.url, e.request?.uri)) return;
@@ -112,7 +151,20 @@ class _AkweloVerifyPageState extends State<AkweloVerifyPage> {
     if (platform is AndroidWebViewController) {
       platform.setMediaPlaybackRequiresUserGesture(false);
     }
-    _controller.loadRequest(widget.url);
+    _watchCapture();
+    final env = _capture.env();
+    _controller.loadRequest(env == null
+        ? widget.url
+        : widget.url.replace(fragment: '${widget.url.fragment}&env=$env'));
+  }
+
+  @override
+  void dispose() {
+    try {
+      _stopWatching?.call();
+    } catch (_) {}
+    _stopWatching = null;
+    super.dispose();
   }
 
   Future<void> _openOutside(String url) async {

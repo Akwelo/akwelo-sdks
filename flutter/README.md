@@ -50,6 +50,35 @@ passed to the page as `attest=`. A callback that throws, or takes longer than 5 
 **Akwelo stores the token and does not verify it yet, so today it adds no protection.** **TODO:** a built-in native helper is planned once real Google Play
 Console and Apple Developer accounts are set up.
 
+## Screen capture
+
+Akwelo sends a session to review when the screen was recorded, mirrored or shared while the selfie
+was taken. Flutter cannot see this; feed it from your app's platform code with
+`AkweloOptions(screenCaptureActive: bool)` or, for changes while the page is open,
+`watchScreenCapture`. Without either, nothing is sent and Akwelo records `unknown`.
+
+```dart
+const channel = EventChannel('app/screen_capture'); // yours, below
+await Akwelo.verify(context, sessionToken: token, options: AkweloOptions(
+  watchScreenCapture: (onChange) {
+    // Only a real bool is forwarded: no event means unknown, never `false`.
+    final sub = channel.receiveBroadcastStream().listen((v) { if (v is bool) onChange(v); });
+    return sub.cancel;
+  },
+));
+```
+
+iOS (`AppDelegate.swift`, a `FlutterStreamHandler` on that channel): send
+`UIScreen.main.isCaptured` on listen and on every `UIScreen.capturedDidChangeNotification`.
+
+Android (`MainActivity.kt`, an `EventChannel.StreamHandler`): on Android 15+ send
+`windowManager.addScreenRecordingCallback(mainExecutor) { s -> events.success(s == WindowManager.SCREEN_RECORDING_STATE_VISIBLE) }`
+(declare `android.permission.DETECT_SCREEN_RECORDING`). On Android 14 and below only send `true`,
+while `DisplayManager.getDisplays()` has a display that is on with `Display.FLAG_PRESENTATION`,
+other than `Display.DEFAULT_DISPLAY` and the activity's own display; never send `false` there.
+Screen recorders, Cast mirroring and remote-access apps cannot be seen on those versions, so
+staying silent lets Akwelo record `unknown` instead of "not detected".
+
 ## Development
 
 ```sh

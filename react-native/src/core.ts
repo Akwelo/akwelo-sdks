@@ -24,7 +24,16 @@ export interface VerifyOptions {
    * throws or takes longer than 5 seconds is skipped: capture never waits on attestation.
    */
   attestationToken?: string | (() => Promise<string | undefined | null>);
+  /**
+   * Whether the screen is being recorded, mirrored or shared, from your own native module (React
+   * Native cannot see it; see README). A boolean, or a function that receives a callback to call
+   * with every change and may return an unsubscribe function. Forwarded to the page, which sends
+   * it to Akwelo as evidence. Absent: nothing is sent and Akwelo records `unknown`.
+   */
+  screenCaptureActive?: ScreenCaptureOption;
 }
+
+export type ScreenCaptureOption = boolean | ((onChange: (active: boolean) => void) => (() => void) | void);
 
 /** How long capture waits for an attestation token before starting without one. */
 export const ATTESTATION_TIMEOUT_MS = 5000;
@@ -36,13 +45,111 @@ export function sdkError(code: string, message: string): VerifyResult {
 
 const STATUSES: ReadonlySet<string> = new Set(['submitted', 'cancelled', 'error']);
 
-/** Builds `{baseUrl}/verify/selfie#token=...[&attest=...]`. Secrets stay in the URL fragment. */
-export function buildVerifyUrl(baseUrl: string, sessionToken: string, attestationToken?: string | null): string {
+/**
+ * Builds `{baseUrl}/verify/selfie#token=...[&attest=...][&env=...]`. Secrets stay in the URL
+ * fragment. `env` is the first screen capture report, from `encodeHostEnv`.
+ */
+export function buildVerifyUrl(
+  baseUrl: string,
+  sessionToken: string,
+  attestationToken?: string | null,
+  env?: string | null,
+): string {
   if (!sessionToken || !sessionToken.trim()) throw new Error('Akwelo: sessionToken must not be blank');
   const base = baseUrl.replace(/\/+$/, '');
   let url = `${base}/verify/selfie#token=${encodeURIComponent(sessionToken)}`;
   if (attestationToken) url += `&attest=${encodeURIComponent(attestationToken)}`;
+  if (env) url += `&env=${encodeURIComponent(env)}`;
   return url;
+}
+
+/** Which SDK reports the capture environment. */
+export type HostSource = 'ios' | 'android' | 'react-native' | 'flutter';
+
+/**
+ * The report the hosted page receives through `window.AkweloHost.signal(...)` and `env=`.
+ * `screen_capture_seen` is present (true) once any capture was seen since the screen opened.
+ */
+export function hostSignal(active: boolean, source: HostSource = 'react-native', seen = false) {
+  const report: { screen_capture: 'active' | 'inactive'; source: HostSource; screen_capture_seen?: true } = {
+    screen_capture: active ? 'active' : 'inactive',
+    source,
+  };
+  if (seen) report.screen_capture_seen = true;
+  return report;
+}
+
+const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** The report as base64url JSON without padding, for the `env=` fragment value. */
+export function encodeHostEnv(active: boolean, source: HostSource = 'react-native', seen = false): string {
+  // The JSON is ASCII (fixed keys and values), so each char is one byte. No btoa: not every engine has it.
+  const json = JSON.stringify(hostSignal(active, source, seen));
+  let out = '';
+  for (let i = 0; i < json.length; i += 3) {
+    const n = (json.charCodeAt(i) << 16) | ((json.charCodeAt(i + 1) || 0) << 8) | (json.charCodeAt(i + 2) || 0);
+    const chars = Math.min(4, Math.ceil(((json.length - i) * 8) / 6));
+    for (let k = 0; k < chars; k++) out += B64URL[(n >> (18 - 6 * k)) & 63];
+  }
+  return out;
+}
+
+/** JavaScript that hands the report to the page; it never throws, whatever state the page is in. */
+export function hostSignalScript(active: boolean, source: HostSource = 'react-native', seen = false): string {
+  const payload = JSON.stringify(hostSignal(active, source, seen));
+  return `try{window.AkweloHost&&window.AkweloHost.signal(${payload})}catch(e){} true;`;
+}
+
+/** Screen capture as last reported, and whether any was seen since the screen opened. */
+export class HostSignalState {
+  active: boolean | undefined;
+  seen = false;
+  /** Records a report; answers whether what the page should hear changed. */
+  set(active: boolean): boolean {
+    const changed = this.active !== active || (active && !this.seen);
+    this.active = active;
+    if (active) this.seen = true;
+    return changed;
+  }
+  /** A capture happened without changing the current state; answers whether that is news. */
+  markSeen(): boolean {
+    if (this.seen) return false;
+    this.seen = true;
+    return true;
+  }
+  /** The report to send, or null before the host app reported anything. */
+  payload(source: HostSource = 'react-native') {
+    return this.active === undefined ? null : hostSignal(this.active, source, this.seen);
+  }
+}
+
+/**
+ * Feeds `onChange` from the `screenCaptureActive` option: once for a boolean, on every report for a
+ * subscription, never when absent or when the host's function throws. Returns a stop function.
+ */
+export function watchScreenCapture(opt: ScreenCaptureOption | undefined, onChange: (active: boolean) => void): () => void {
+  if (typeof opt === 'boolean') {
+    onChange(opt);
+    return () => undefined;
+  }
+  if (typeof opt !== 'function') return () => undefined;
+  let live = true;
+  let unsubscribe: (() => void) | void;
+  try {
+    unsubscribe = opt((active) => {
+      if (live && typeof active === 'boolean') onChange(active);
+    });
+  } catch {
+    // The host's native module failed: send nothing, the server records `unknown`.
+  }
+  return () => {
+    live = false;
+    try {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    } catch {
+      // ignore
+    }
+  };
 }
 
 /** `scheme://host[:port]`, lower-cased, default ports dropped. Null without a host or with userinfo. */

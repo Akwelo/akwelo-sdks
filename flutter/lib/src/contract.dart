@@ -86,8 +86,17 @@ class VerifyResult {
       'VerifyResult($status, sessionId: $sessionId, error: $error, errorMessage: $errorMessage)';
 }
 
+/// Subscribes to screen capture reports from the host app's own native code: call `onChange` with
+/// every change (and the current value, if known); return a function that stops the subscription.
+typedef ScreenCaptureWatcher = void Function() Function(void Function(bool active) onChange);
+
 class AkweloOptions {
-  const AkweloOptions({this.baseUrl = kDefaultBaseUrl, this.attestationToken});
+  const AkweloOptions({
+    this.baseUrl = kDefaultBaseUrl,
+    this.attestationToken,
+    this.screenCaptureActive,
+    this.watchScreenCapture,
+  });
 
   /// Hosted capture origin. Override for staging or self-hosted deployments. Must be https
   /// (plain http is accepted only for a development server on this machine).
@@ -98,10 +107,76 @@ class AkweloOptions {
   /// never waits on attestation.
   /// TODO(akwelo): a native helper is planned once real Google and Apple accounts exist.
   final Future<String?> Function()? attestationToken;
+
+  /// Whether the screen is being recorded, mirrored or shared, as your app's native code sees it
+  /// (Flutter cannot; see README). Forwarded to the page, which sends it to Akwelo as evidence.
+  /// Use [watchScreenCapture] instead to report changes while the capture page is open. With
+  /// neither, nothing is sent and Akwelo records `unknown`.
+  final bool? screenCaptureActive;
+
+  /// Live variant of [screenCaptureActive]; takes precedence over it.
+  final ScreenCaptureWatcher? watchScreenCapture;
 }
 
-/// Builds `{baseUrl}/verify/selfie#token=...[&attest=...]`. Secrets stay in the URL fragment.
-Uri buildVerifyUrl(String baseUrl, String sessionToken, {String? attestation}) {
+/// Which SDK reports the capture environment.
+const String kHostSource = 'flutter';
+
+/// The report the hosted page receives through `window.AkweloHost.signal(...)` and `env=`.
+/// `screen_capture_seen` is present (true) once any capture was seen since the page opened.
+Map<String, Object> hostSignal(bool active, {bool seen = false, String source = kHostSource}) => {
+      'screen_capture': active ? 'active' : 'inactive',
+      'source': source,
+      if (seen) 'screen_capture_seen': true,
+    };
+
+/// The report as base64url JSON without padding, for the `env=` fragment value.
+String encodeHostEnv(bool active, {bool seen = false, String source = kHostSource}) =>
+    base64Url.encode(utf8.encode(jsonEncode(hostSignal(active, seen: seen, source: source)))).replaceAll('=', '');
+
+/// JavaScript that hands the report to the page; it never throws, whatever state the page is in.
+String hostSignalScript(bool active, {bool seen = false, String source = kHostSource}) =>
+    'try{window.AkweloHost&&window.AkweloHost.signal(${jsonEncode(hostSignal(active, seen: seen, source: source))})}catch(e){}';
+
+/// Screen capture as last reported, and whether any was seen since the page opened.
+class HostSignalState {
+  bool? active;
+  bool seen = false;
+
+  /// Records a report; answers whether what the page should hear changed.
+  bool set(bool value) {
+    final changed = active != value || (value && !seen);
+    active = value;
+    if (value) seen = true;
+    return changed;
+  }
+
+  /// A capture happened without changing the current state; answers whether that is news.
+  bool markSeen() {
+    if (seen) return false;
+    seen = true;
+    return true;
+  }
+
+  /// The report to send, or null before anything was reported.
+  Map<String, Object>? payload() {
+    final a = active;
+    return a == null ? null : hostSignal(a, seen: seen);
+  }
+
+  String? script() {
+    final a = active;
+    return a == null ? null : hostSignalScript(a, seen: seen);
+  }
+
+  String? env() {
+    final a = active;
+    return a == null ? null : encodeHostEnv(a, seen: seen);
+  }
+}
+
+/// Builds `{baseUrl}/verify/selfie#token=...[&attest=...][&env=...]`. Secrets stay in the URL
+/// fragment. `env` is the first screen capture report, from [encodeHostEnv].
+Uri buildVerifyUrl(String baseUrl, String sessionToken, {String? attestation, String? env}) {
   if (sessionToken.trim().isEmpty) {
     throw ArgumentError.value(sessionToken, 'sessionToken', 'must not be blank');
   }
@@ -110,6 +185,7 @@ Uri buildVerifyUrl(String baseUrl, String sessionToken, {String? attestation}) {
   if (attestation != null && attestation.isNotEmpty) {
     fragment += '&attest=${Uri.encodeComponent(attestation)}';
   }
+  if (env != null && env.isNotEmpty) fragment += '&env=${Uri.encodeComponent(env)}';
   return Uri.parse('$base/verify/selfie#$fragment');
 }
 
