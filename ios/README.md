@@ -57,11 +57,9 @@ Camera capture inside a `WKWebView` needs iOS 14.3 or later.
 ## Device attestation (App Attest)
 
 `useAppAttest: true` sends an App Attest attestation (clientDataHash = SHA-256 of the session token)
-as `attest=`. **Akwelo stores it and does not verify it with Apple yet, so today it adds no
-protection.** It is best-effort: a failure, or no attestation within 5 seconds, loads the page
-without it. **TODO:** requires an Apple Developer team with the App Attest capability, the
-`com.apple.developer.devicecheck.appattest-environment` entitlement, and backend verification. Not
-tested on real devices yet; failures fall back to loading without attestation.
+as `attest=`. **Akwelo verifies it against Apple's App Attest certificate chain.** It is best-effort: a failure, or no attestation within 5 seconds, loads the page
+without it. It needs an Apple Developer team with the App Attest capability and the
+`com.apple.developer.devicecheck.appattest-environment` entitlement. To require it, pass `attestation` with the apps you expect (`ios_app_ids` as `TEAMID.bundle.id`, `android_package_names`) when your backend creates the session. The session result carries `device_attestation` with a `status` (`verified`, `failed`, `unverified` or `absent`) and a `reason`. A session that expected attestation and did not get a verified one goes to review and is never approved automatically.
 
 ## Screen capture
 

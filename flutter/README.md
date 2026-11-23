@@ -47,8 +47,7 @@ not a blank screen. Links the person taps open in the system browser (`url_launc
 
 `attestationToken` is an optional async callback returning a Play Integrity or App Attest token,
 passed to the page as `attest=`. A callback that throws, or takes longer than 5 seconds, is skipped.
-**Akwelo stores the token and does not verify it yet, so today it adds no protection.** **TODO:** a built-in native helper is planned once real Google Play
-Console and Apple Developer accounts are set up.
+Obtain the token with native code of your own. Akwelo verifies the token. To require it, pass `attestation` with the apps you expect (`ios_app_ids` as `TEAMID.bundle.id`, `android_package_names`) when your backend creates the session. The session result carries `device_attestation` with a `status` (`verified`, `failed`, `unverified` or `absent`) and a `reason`. A session that expected attestation and did not get a verified one goes to review and is never approved automatically.
 
 ## Screen capture
 

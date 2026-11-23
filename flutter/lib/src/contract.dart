@@ -105,7 +105,7 @@ class AkweloOptions {
   /// Optional device attestation token provider (Play Integrity / App Attest), passed as `attest=`.
   /// A provider that throws or takes longer than [kAttestationTimeout] is skipped: capture
   /// never waits on attestation.
-  /// TODO(akwelo): a native helper is planned once real Google and Apple accounts exist.
+  /// Akwelo verifies the token; Flutter cannot produce one, so supply it from native code.
   final Future<String?> Function()? attestationToken;
 
   /// Whether the screen is being recorded, mirrored or shared, as your app's native code sees it

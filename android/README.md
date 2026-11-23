@@ -58,8 +58,7 @@ Set `playIntegrityCloudProjectNumber` to send a Play Integrity token (nonce = SH
 session token) to the page as `attest=`. Use the **Cloud project number Akwelo gives you**, not
 your own Google Cloud project's: Akwelo decodes the token, and Google lets only the project that
 requested a token decode it. Your app must be distributed through Google Play for Play Integrity to
-answer. See the root README's [Status and limits](../README.md#status-and-limits) for what Akwelo
-does with the token today. Attestation is best-effort: a failure, or no token within 5 seconds, loads the page without it.
+answer. Akwelo verifies the token; see the root README's [Status and limits](../README.md#status-and-limits) to require it. Attestation is best-effort: a failure, or no token within 5 seconds, loads the page without it.
 
 ## Screen capture
 

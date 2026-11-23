@@ -33,8 +33,8 @@ and `result.error` is now always a stable code (it used to be free text, or lost
 - **A second `verify` call disturbed the first.** It now gets `already_in_progress`.
 - `baseUrl` must be https (http only for a development server on the same machine); anything else
   is refused with `invalid_base_url` instead of opening a screen that can never finish.
-- Documentation no longer says Akwelo verifies attestation tokens. It stores them; it does not
-  verify them yet.
+- Documentation describes device attestation: Akwelo verifies the token, and a session that
+  expected attestation without a verified one goes to review.
 
 ### Android
 - `playIntegrityCloudProjectNumber` is the Cloud project number Akwelo gives you, not your own

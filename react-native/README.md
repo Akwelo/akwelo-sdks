@@ -55,9 +55,7 @@ taps open in the system browser.
 
 `attestationToken` accepts a string or an async function. Pure JS cannot produce Play Integrity or
 App Attest tokens; obtain one with a native module and pass it in. A function that throws, or takes
-longer than 5 seconds, is skipped. **Akwelo stores the token and does not verify it yet, so today it
-adds no protection.** **TODO:** a companion native
-module is planned once real Google Play Console and Apple Developer accounts are set up.
+longer than 5 seconds, is skipped. Akwelo verifies the token. To require it, pass `attestation` with the apps you expect (`ios_app_ids` as `TEAMID.bundle.id`, `android_package_names`) when your backend creates the session. The session result carries `device_attestation` with a `status` (`verified`, `failed`, `unverified` or `absent`) and a `reason`. A session that expected attestation and did not get a verified one goes to review and is never approved automatically.
 
 ## Screen capture
 

@@ -16,8 +16,7 @@ public struct AkweloOptions: Sendable {
     public var baseURL: URL
     /// Send an App Attest attestation as `attest=` when the device supports it. Capture never
     /// waits on it: none within `attestationTimeout` means the page loads without one.
-    /// TODO(akwelo): requires an Apple Developer team with the App Attest entitlement and
-    /// server-side key registration; off by default until that exists.
+    /// Requires an Apple Developer team with the App Attest entitlement. Off by default.
     public var useAppAttest: Bool
 
     public init(baseURL: URL = AkweloOptions.defaultBaseURL, useAppAttest: Bool = false) {

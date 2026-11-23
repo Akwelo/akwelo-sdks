@@ -92,10 +92,11 @@ code as a generic failure.
 
 ## Status and limits
 
-- **Device attestation is not verified yet.** Play Integrity and App Attest tokens passed as
-  `attest=` are forwarded to Akwelo with the capture and stored. Akwelo does not check them with
-  Google or Apple yet, so today they add no protection. They need real Google Cloud / Apple
-  Developer accounts; see each package README.
+- **Device attestation.** Play Integrity and App Attest tokens passed as `attest=` are forwarded
+  to Akwelo with the capture and verified there. Pass `attestation` (the apps you expect) when
+  your backend creates the session to require it: a session without a verified attestation goes
+  to review. The screen-capture report is marked `trusted` only when attestation is verified. See
+  each package README.
 - **Android, process death.** The callback of `Akwelo.verify(activity, token) { }` cannot survive
   Android killing your app's process while the capture screen is open. Use `AkweloVerifyContract`
   to receive the result in that case too. The capture itself is unaffected: the decision still

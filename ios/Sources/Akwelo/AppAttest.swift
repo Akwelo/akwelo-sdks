@@ -4,13 +4,9 @@ import DeviceCheck
 import Foundation
 
 /// Best-effort App Attest token bound to the session (clientDataHash = SHA-256 of the token).
-/// The page forwards it to Akwelo with the capture as a device signal. Akwelo stores it and does
-/// not verify it with Apple yet, so today it adds no protection on its own.
-///
-/// TODO(akwelo): needs an Apple Developer team, the App Attest capability/entitlement, and
-/// Akwelo backend support for attestation-object verification and key registration. The key is
-/// generated per call here; production should persist the keyId in the Keychain and send an
-/// assertion after the first attestation. Untested until those accounts exist.
+/// The page forwards it to Akwelo with the capture as a device signal. Akwelo verifies it with
+/// Apple. Needs an Apple Developer team and the App Attest capability/entitlement. A new key is
+/// generated on every call.
 enum AppAttest {
     static func token(sessionToken: String) async -> String? {
         if #available(iOS 14.0, *) {
