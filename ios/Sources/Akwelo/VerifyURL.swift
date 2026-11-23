@@ -8,11 +8,15 @@ public enum AkweloError: Error, Equatable {
 public struct AkweloOptions: Sendable {
     public static let defaultBaseURL = URL(string: "https://flow.akwelo.com")!
 
-    /// Hosted capture origin. Override for staging or self-hosted deployments.
+    /// How long capture waits for an attestation before starting without one.
+    public static let attestationTimeout: TimeInterval = 5
+
+    /// Hosted capture origin. Override for staging or self-hosted deployments. Must be https
+    /// (plain http is accepted only for a development server on this machine).
     public var baseURL: URL
-    /// Send an App Attest assertion as `attest=` when the device supports it.
-    /// TODO(akwelo): requires an Apple Developer team with the App Attest entitlement and
-    /// server-side key registration; off by default until that exists.
+    /// Send an App Attest attestation as `attest=` when the device supports it. Capture never
+    /// waits on it: none within `attestationTimeout` means the page loads without one.
+    /// Requires an Apple Developer team with the App Attest entitlement. Off by default.
     public var useAppAttest: Bool
 
     public init(baseURL: URL = AkweloOptions.defaultBaseURL, useAppAttest: Bool = false) {
@@ -28,8 +32,9 @@ enum VerifyURL {
         return c
     }()
 
-    /// Builds `{baseUrl}/verify/selfie#token=...[&attest=...]`. Secrets stay in the fragment.
-    static func build(baseURL: URL, sessionToken: String, attestation: String? = nil) throws -> URL {
+    /// Builds `{baseUrl}/verify/selfie#token=...[&attest=...][&env=...]`. Secrets stay in the
+    /// fragment. `env` is the first screen capture report (`HostSignal.env`).
+    static func build(baseURL: URL, sessionToken: String, attestation: String? = nil, env: String? = nil) throws -> URL {
         guard !sessionToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AkweloError.invalidSessionToken
         }
@@ -37,6 +42,7 @@ enum VerifyURL {
         while base.hasSuffix("/") { base.removeLast() }
         var s = base + "/verify/selfie#token=" + encode(sessionToken)
         if let a = attestation, !a.isEmpty { s += "&attest=" + encode(a) }
+        if let e = env, !e.isEmpty { s += "&env=" + encode(e) }
         guard let url = URL(string: s) else { throw AkweloError.invalidBaseURL }
         return url
     }
@@ -57,6 +63,27 @@ enum VerifyURL {
     static func isTrusted(_ url: URL?, base: URL) -> Bool {
         guard let o = origin(of: url) else { return false }
         return o == origin(of: base)
+    }
+
+    private static let localHosts: Set<String> = ["localhost", "127.0.0.1", "::1", "[::1]"]
+
+    /// The origin of a usable base URL, or nil. The page handles a camera and a session token, so
+    /// it must be https; plain http is accepted only for a development server on this machine.
+    static func validBaseOrigin(_ url: URL?) -> String? {
+        guard let url, let o = origin(of: url) else { return nil }
+        if o.hasPrefix("https://") { return o }
+        guard o.hasPrefix("http://"), let host = url.host?.lowercased(), localHosts.contains(host) else { return nil }
+        return o
+    }
+
+    /// What a failed main-frame load means for the capture: an error result, or nil to ignore it
+    /// (a link the person tapped that did not open, or a navigation the SDK itself stopped).
+    static func resultForLoadError(domain: String, code: Int, failingURL: URL?, base: URL) -> VerifyResult? {
+        // A navigation the app cancelled: NSURLErrorCancelled, or WebKit's "frame load interrupted".
+        if domain == NSURLErrorDomain, code == NSURLErrorCancelled { return nil }
+        if domain == "WebKitErrorDomain", code == 102 { return nil }
+        if let failingURL, !isTrusted(failingURL, base: base) { return nil }
+        return .failure("page_load_failed", "The capture page did not load (\(domain) \(code))")
     }
 
     private static func encode(_ v: String) -> String {

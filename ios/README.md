@@ -11,7 +11,7 @@ iOS 14+, Swift 5.9+.
 **CocoaPods:**
 
 ```ruby
-pod 'Akwelo', '~> 0.1'
+pod 'Akwelo', '~> 0.2'
 ```
 
 Add to your app's Info.plist:
@@ -20,6 +20,9 @@ Add to your app's Info.plist:
 <key>NSCameraUsageDescription</key>
 <string>We use the camera to verify your identity.</string>
 ```
+
+Without it iOS terminates an app that asks for the camera, so `verify` checks first and returns
+`missing_camera_usage_description` instead of opening the capture screen.
 
 ## Usage
 
@@ -31,7 +34,7 @@ let result = try await Akwelo.verify(sessionToken: token, from: self)
 switch result.status {
 case .submitted: showPending(result.sessionId)   // decision arrives at your backend
 case .cancelled: showRetry()
-case .error:     showError(result.error)
+case .error:     showError(result.error, result.errorMessage)   // error is a stable code
 }
 
 // Options
@@ -40,15 +43,34 @@ let options = AkweloOptions(baseURL: URL(string: "https://flow.akwelo.com")!, us
 
 A completion-handler overload exists for non-async code. `submitted` only means capture finished.
 
+`verify` throws only for arguments that can never work: a blank token (`invalidSessionToken`) or a
+base URL that is not https (`invalidBaseURL`). Everything that goes wrong at run time comes back as
+a result with status `.error` and a code from the [list in the root README](../README.md#error-codes).
+Call it from a view controller that is on screen and not already presenting; otherwise it returns
+`presentation_failed`.
+
+The capture screen is a full-screen modal with a close button that always works, so a page that
+cannot load can never trap the person. A page that fails to load, answers with an HTTP error, or
+whose web process dies ends in an `.error` result. Links the person taps open in Safari.
+Camera capture inside a `WKWebView` needs iOS 14.3 or later.
+
 ## Device attestation (App Attest)
 
 `useAppAttest: true` sends an App Attest attestation (clientDataHash = SHA-256 of the session token)
-as `attest=`. **TODO:** requires an Apple Developer team with the App Attest capability, the
-`com.apple.developer.devicecheck.appattest-environment` entitlement, and backend verification. Not
-tested on real devices yet; failures fall back to loading without attestation.
+as `attest=`. **Akwelo verifies it against Apple's App Attest certificate chain.** It is best-effort: a failure, or no attestation within 5 seconds, loads the page
+without it. It needs an Apple Developer team with the App Attest capability and the
+`com.apple.developer.devicecheck.appattest-environment` entitlement. To require it, pass `attestation` with the apps you expect (`ios_app_ids` as `TEAMID.bundle.id`, `android_package_names`) when your backend creates the session. The session result carries `device_attestation` with a `status` (`verified`, `failed`, `unverified` or `absent`) and a `reason`. A session that expected attestation and did not get a verified one goes to review and is never approved automatically.
+
+## Screen capture
+
+While the capture screen is open the SDK tells the page whether the screen is being recorded,
+mirrored or sent over AirPlay (`UIScreen.isCaptured`, updated on
+`UIScreen.capturedDidChangeNotification`), and Akwelo sends a session captured that way to review.
+No setup.
 
 ## Development
 
 ```
-cd ios && swift build && swift test   # on macOS with Xcode; UIKit code is skipped on Linux
+cd ios && swift build && swift test   # Foundation-only logic; the UIKit screen is skipped off Apple platforms
+xcodebuild test -scheme Akwelo -destination 'platform=iOS Simulator,name=iPhone 16'   # from the repo root, on macOS
 ```

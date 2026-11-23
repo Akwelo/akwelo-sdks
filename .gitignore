@@ -12,3 +12,4 @@ Pods/
 pubspec.lock
 .DS_Store
 coverage/
+.kotlin/

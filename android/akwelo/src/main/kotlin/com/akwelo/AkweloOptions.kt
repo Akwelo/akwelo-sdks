@@ -4,28 +4,41 @@ import java.net.URI
 import java.net.URLEncoder
 
 data class AkweloOptions(
-    /** Hosted capture origin. Override for staging or self-hosted deployments. */
+    /**
+     * Hosted capture origin. Override for staging or self-hosted deployments. Must be https
+     * (plain http is accepted only for a development server on this machine or the emulator host).
+     */
     val baseUrl: String = DEFAULT_BASE_URL,
     /**
-     * Google Cloud project number linked to your app in the Play Console. When set, a Play Integrity
-     * token is requested and passed to the page as `attest=`. Null disables attestation.
-     * TODO(akwelo): requires a real Play Console + Google Cloud project; not configured yet.
+     * The Google Cloud project number Akwelo gives you for Play Integrity. It is Akwelo's project,
+     * not your own: Akwelo decodes the token, and Google only lets the project that requested a
+     * token decode it. When set, a Play Integrity token is requested and passed to the page as
+     * `attest=`. Null disables attestation. Capture never waits on it: no token within
+     * [ATTESTATION_TIMEOUT_MS] means the page loads without one.
      */
     val playIntegrityCloudProjectNumber: Long? = null,
 ) {
     companion object {
         const val DEFAULT_BASE_URL = "https://flow.akwelo.com"
+
+        /** How long capture waits for an attestation token before starting without one. */
+        const val ATTESTATION_TIMEOUT_MS = 5000L
     }
 }
 
 object VerifyUrl {
-    /** Builds `{baseUrl}/verify/selfie#token=...[&attest=...]`. Secrets stay in the fragment. */
+    /**
+     * Builds `{baseUrl}/verify/selfie#token=...[&attest=...][&env=...]`. Secrets stay in the
+     * fragment. `env` is the first screen capture report.
+     */
     @JvmStatic
-    fun build(baseUrl: String, sessionToken: String, attestationToken: String? = null): String {
+    @JvmOverloads
+    fun build(baseUrl: String, sessionToken: String, attestationToken: String? = null, env: String? = null): String {
         require(sessionToken.isNotBlank()) { "sessionToken must not be blank" }
         val base = baseUrl.trimEnd('/')
         val sb = StringBuilder(base).append("/verify/selfie#token=").append(encode(sessionToken))
         if (!attestationToken.isNullOrEmpty()) sb.append("&attest=").append(encode(attestationToken))
+        if (!env.isNullOrEmpty()) sb.append("&env=").append(encode(env))
         return sb.toString()
     }
 
@@ -45,6 +58,21 @@ object VerifyUrl {
     fun isTrusted(url: String?, baseUrl: String): Boolean {
         val o = origin(url) ?: return false
         return o == origin(baseUrl)
+    }
+
+    private val LOCAL_HOSTS = setOf("localhost", "127.0.0.1", "10.0.2.2", "[::1]")
+
+    /**
+     * The origin of a usable `baseUrl`, or null. The page handles a camera and a session token, so
+     * it must be https; plain http is accepted only for a development server on this machine.
+     */
+    @JvmStatic
+    fun validBaseOrigin(baseUrl: String?): String? {
+        val o = origin(baseUrl) ?: return null
+        if (o.startsWith("https://")) return o
+        if (!o.startsWith("http://")) return null
+        val host = o.removePrefix("http://").replace(Regex(":\\d+$"), "")
+        return if (host in LOCAL_HOSTS) o else null
     }
 
     private fun encode(v: String) = URLEncoder.encode(v, "UTF-8").replace("+", "%20")

@@ -9,10 +9,9 @@ import java.security.MessageDigest
 
 /**
  * Requests a classic Play Integrity token bound to the session (nonce = SHA-256 of the token).
- * Akwelo's backend decrypts and checks it with Google.
- *
- * TODO(akwelo): needs a Play Console app linked to a Google Cloud project with the Play Integrity
- * API enabled, and server-side verification credentials. Untested until those exist.
+ * The page forwards it to Akwelo with the capture as a device signal. `cloudProjectNumber` is the
+ * Akwelo-provided project number ([AkweloOptions.playIntegrityCloudProjectNumber]): Akwelo decodes
+ * the token, and only the requesting project can.
  */
 internal object PlayIntegrity {
     suspend fun token(context: Context, cloudProjectNumber: Long, sessionToken: String): String? = try {
